@@ -1,0 +1,8 @@
+# Claude Code 运行时自动生成的本地配置
+# 注意：.claude-plugin/ 是插件元数据目录，需要保留在版本控制中
+.claude/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp

@@ -15,13 +15,21 @@ user-invocable: true
 
 ## 步骤一：识别主控 Pane
 
-先确定当前主控 pane（即正在执行 cleanup 的这个 pane），后续 kill 时必须排除它：
+先确定当前主控 pane（即正在执行 cleanup 的这个 pane），后续 kill 时必须排除它。
+
+**获取主控 pane id**（不依赖 tmux 焦点，防止焦点漂移导致误杀）：
+
+```bash
+echo $TMUX_PANE
+```
+
+`$TMUX_PANE` 是 tmux 注入到每个 pane 进程的环境变量，标识当前进程所在的 pane，不受鼠标点击或 focus 切换影响。记录其值作为 **master_pane_id**。
+
+然后获取所有 pane 状态：
 
 ```bash
 tmux-cli status
 ```
-
-从输出中找到标记为 `*`（当前活动）的 pane，记录其 pane id 作为 **master_pane_id**。
 
 ---
 
@@ -29,9 +37,11 @@ tmux-cli status
 
 按 setup-agents 中定义的配置查找顺序（`$TMUX_AGENTS_CONFIG` → `~/.claude/tmux-agents/agents.json` → 插件内 `config/agents.example.json`）读取配置文件，获取所有角色的 `pane_title`。
 
-从步骤一的 `tmux-cli status` 输出中查找 pane title 匹配这些角色的 pane，**排除 master_pane_id**。
+从步骤一的 `tmux-cli status` 输出中查找 pane title 匹配这些角色的 pane，**排除 master_pane_id**（即 `$TMUX_PANE` 的值）。
 
 将所有待关闭的 pane id 收集到一个列表中，一次性确定后再开始 kill（避免逐个 kill 时 focus 漂移导致 pane id 变化）。
+
+**安全校验**：在 kill 之前，逐一确认列表中没有 master_pane_id。这是最后一道防线。
 
 如果没有找到任何 agent pane，告知用户当前没有运行中的 agent。
 

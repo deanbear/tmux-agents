@@ -1,5 +1,6 @@
 {
   "defaults": {
+    "runtime": "claude",
     "model": "sonnet",
     "permission_mode": "default",
     "idle_timeout": 120,
@@ -10,6 +11,8 @@
       "type": "code-writer",
       "pane_title": "code-writer",
       "model": "sonnet",
+      "api_base": "https://your-proxy.example.com/v1",
+      "api_key": "your-api-key-here",
       "permission_mode": "acceptEdits",
       "disallowed_tools": "Bash(git commit) Bash(git commit *) Bash(*git commit*) Bash(git push) Bash(git push *) Bash(*git push*) Bash(git reset *) Bash(*git reset*) Bash(git clean *) Bash(*git clean*) Bash(gh pr *)"
     },
@@ -26,6 +29,15 @@
       "model": "opus",
       "permission_mode": "auto",
       "disallowed_tools": "Bash(git commit) Bash(git commit *) Bash(*git commit*) Bash(git push) Bash(git push *) Bash(*git push*) Bash(git reset *) Bash(*git reset*) Bash(git clean *) Bash(*git clean*) Bash(gh pr *)"
+    },
+    "code-reviewer-codewhale": {
+      "_comment": "api_base 必须是 litellm 兼容代理 URL，api_key 是 litellm 的 key——不是 DeepSeek/OpenAI 等 provider 的原生凭证；model 用 litellm 路由前缀格式 'deepseek/<name>'。当前仅此路径验证过。",
+      "type": "code-reviewer",
+      "pane_title": "code-reviewer-cw",
+      "runtime": "codewhale",
+      "model": "deepseek/deepseek-v4-pro",
+      "api_base": "https://litellm.westlake.ink/v1",
+      "api_key": "your-api-key-here"
     }
   }
 }

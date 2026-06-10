@@ -35,7 +35,7 @@ tmux-cli status
 
 ## 步骤二：发现运行中的 Agent
 
-按 setup-agents 中定义的配置查找顺序（`$TMUX_AGENTS_CONFIG` → `~/.claude/tmux-agents/agents.json` → 插件内 `config/agents.example.json`）读取配置文件，获取所有角色的 `pane_title`。
+按 setup-agents 中定义的配置查找顺序读取配置文件（`$TMUX_AGENTS_CONFIG` → 当前宿主的默认配置目录 → 插件内 `config/agents.example.json`），获取所有角色的 `pane_title`。
 
 从步骤一的 `tmux-cli status` 输出中查找 pane title 匹配这些角色的 pane，**排除 master_pane_id**（即 `$TMUX_PANE` 的值）。
 

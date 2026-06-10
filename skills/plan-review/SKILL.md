@@ -16,7 +16,7 @@ user-invocable: true
 
 ## 步骤一：发现 plan-reviewer agent
 
-按 setup-agents 中定义的配置查找顺序（`$TMUX_AGENTS_CONFIG` → `~/.claude/tmux-agents/agents.json` → 插件内 `config/agents.example.json`）读取配置文件，找到 `type` 为 `plan-reviewer` 的角色，记录其 `pane_title`。
+按 setup-agents 中定义的配置查找顺序读取配置文件（`$TMUX_AGENTS_CONFIG` → 当前宿主的默认配置目录 → 插件内 `config/agents.example.json`），找到 `type` 为 `plan-reviewer` 的角色，记录其 `pane_title`。
 
 运行 `tmux-cli status`，在输出中查找匹配该 `pane_title` 的 pane。
 

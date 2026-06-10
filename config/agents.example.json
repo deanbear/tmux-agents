@@ -38,6 +38,33 @@
       "model": "deepseek/deepseek-v4-pro",
       "api_base": "https://litellm.westlake.ink/v1",
       "api_key": "your-api-key-here"
+    },
+    "code-writer-codex": {
+      "_comment": "Codex runtime 使用当前 Codex CLI 已配置的认证、provider 和 profile；不支持 api_base/api_key/permission_mode/disallowed_tools；不继承 defaults.model。复制配置时只保留你实际要启动的角色。",
+      "type": "code-writer",
+      "pane_title": "code-writer-codex",
+      "runtime": "codex",
+      "sandbox": "workspace-write",
+      "approval_policy": "never",
+      "add_dirs": ["/tmp/tmux-agents"]
+    },
+    "plan-reviewer-codex": {
+      "_comment": "Codex reviewer 需要写 /tmp/tmux-agents 输出文件，因此默认仍用 workspace-write；不得修改源码由 role prompt 约束。",
+      "type": "plan-reviewer",
+      "pane_title": "plan-reviewer-codex",
+      "runtime": "codex",
+      "sandbox": "workspace-write",
+      "approval_policy": "never",
+      "add_dirs": ["/tmp/tmux-agents"]
+    },
+    "code-reviewer-codex": {
+      "_comment": "Codex reviewer 需要写 /tmp/tmux-agents 输出文件，因此默认仍用 workspace-write；不得修改源码由 role prompt 约束。",
+      "type": "code-reviewer",
+      "pane_title": "code-reviewer-codex",
+      "runtime": "codex",
+      "sandbox": "workspace-write",
+      "approval_policy": "never",
+      "add_dirs": ["/tmp/tmux-agents"]
     }
   }
 }

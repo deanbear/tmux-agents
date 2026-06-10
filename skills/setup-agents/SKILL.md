@@ -13,7 +13,13 @@ user-invocable: true
 
 启动多 Agent 协作环境：根据配置文件中定义的所有角色，在 tmux 中为每个角色开启独立的 session，锁定 pane title，验证就绪状态。
 
-**主控运行环境**：本 skill 假设主控（执行 setup-agents 的当前进程）运行在 Claude Code 中，依赖 `${CLAUDE_SKILL_DIR}` 由 Claude Code 自动展开。子 agent 的 runtime 可以是 claude 或 codewhale，由 agents.json 的 `runtime` 字段控制。
+**主控运行环境**：本 skill 支持 Claude Code 或 Codex 作为主控。子 agent 的 runtime 可以是 `claude`、`codewhale` 或 `codex`，由 `agents.json` 的 `runtime` 字段控制。
+
+**插件根目录解析**：
+- Claude Code 主控：使用 `${CLAUDE_SKILL_DIR}/../..`。
+- Codex 主控：使用当前 `SKILL.md` 文件路径上两级的绝对路径。
+
+后文用 `{plugin_root}` 表示解析后的插件根目录，例如内置 role 文件为 `{plugin_root}/roles/{type}.md`。
 
 ---
 
@@ -33,7 +39,7 @@ which tmux
 which tmux-cli
 ```
 
-如果未安装，告知用户：`uv tool install claude-code-tools`，退出。
+如果未安装，告知用户：`uv tool install claude-code-tools`，退出。当前只依赖该包里的 `tmux-cli`，包名保留 Claude Code 是历史原因。
 
 3. 确认在 tmux 环境中：
 
@@ -47,20 +53,38 @@ tmux-cli status
 
 ```bash
 test -f "$TMUX_AGENTS_CONFIG" && echo "$TMUX_AGENTS_CONFIG"
-test -f ~/.claude/tmux-agents/agents.json && echo "~/.claude/tmux-agents/agents.json"
 ```
 
-如果都不存在，使用 Read 工具读取 `${CLAUDE_SKILL_DIR}/../../config/agents.example.json`。
+如果 `$TMUX_AGENTS_CONFIG` 未设置或文件不存在：
+- Codex 主控读取 `~/.codex/tmux-agents/agents.json`
+- Claude Code 主控读取 `~/.claude/tmux-agents/agents.json`
+
+如果宿主默认配置也不存在，不要直接启动内置 example。告知用户 `{plugin_root}/config/agents.example.json` 是模板，需要先复制到当前宿主的默认配置路径，并删除不使用的 runtime 示例后再重新运行：
+
+```bash
+# Codex 主控
+mkdir -p ~/.codex/tmux-agents
+cp {plugin_root}/config/agents.example.json ~/.codex/tmux-agents/agents.json
+
+# Claude Code 主控
+mkdir -p ~/.claude/tmux-agents
+cp {plugin_root}/config/agents.example.json ~/.claude/tmux-agents/agents.json
+```
+
+停止流程，等待用户编辑配置后重试。这样避免 clean install 时把模板里的 claude、codewhale、codex 多套示例角色全部启动。
 
 读取到 JSON 内容后，在对话中直接解析配置。
 
-5. 记录主控 pane id：
+5. 记录主控 pane id 和工作目录：
 
 ```bash
 tmux-cli status
+pwd
 ```
 
-从输出中找到标记为 `*`（当前活动）的 pane，记录其 pane id 作为 **master_pane_id**。后续步骤三启动子 agent 时，`tmux-cli launch` 会把焦点切走，需要切回主控 pane 才能让后续命令正确运转。
+从 `tmux-cli status` 输出中找到标记为 `*`（当前活动）的 pane，记录其 pane id 作为 **master_pane_id**。将 `pwd` 输出记录为 **master_cwd**，后续 Codex runtime 用它作为 `codex --cd` 的工作目录。拼接命令时对 `master_cwd` 做 shell 参数安全引用，并将引用后的值记为 **master_cwd_quoted**。
+
+后续步骤三启动子 agent 时，`tmux-cli launch` 会把焦点切走，需要切回主控 pane 才能让后续命令正确运转。
 
 ---
 
@@ -138,14 +162,14 @@ tmux display-message -p -t {pane_id} '#{pane_title}'
 
 **配置值约束**：`pane_title` 和 `disallowed_tools` 的值不得包含单引号（`'`），因为它们会被单引号包裹后嵌入 tmux send 的双引号命令中。如果配置值包含单引号，命令会断裂导致启动失败。
 
-角色定义文件路径：如果角色配置中有 `role_file` 字段，使用该路径；否则按 `type` 匹配插件内置的 role 文件（`${CLAUDE_SKILL_DIR}/../../roles/{type}.md`）。`${CLAUDE_SKILL_DIR}` 由 Claude Code 自动展开为当前 SKILL.md 所在目录的绝对路径。
+角色定义文件路径：如果角色配置中有 `role_file` 字段，使用该路径；否则按 `type` 匹配插件内置的 role 文件（`{plugin_root}/roles/{type}.md`）。
 
 #### 3.3.A runtime = claude
 
 **基础命令**（使用 Anthropic 原生 API）：
 
 ```bash
-tmux-cli send "CLAUDE_CODE_DISABLE_AUTO_TITLE=1 claude --model {model} --permission-mode {permission_mode} --append-system-prompt-file ${CLAUDE_SKILL_DIR}/../../roles/{type}.md --disallowed-tools '{disallowed_tools}' --name '{pane_title}'" --pane={pane_id}
+tmux-cli send "CLAUDE_CODE_DISABLE_AUTO_TITLE=1 claude --model {model} --permission-mode {permission_mode} --append-system-prompt-file {plugin_root}/roles/{type}.md --disallowed-tools '{disallowed_tools}' --name '{pane_title}'" --pane={pane_id}
 ```
 
 如果 role 文件不存在则跳过 `--append-system-prompt-file` 参数。
@@ -155,7 +179,7 @@ tmux-cli send "CLAUDE_CODE_DISABLE_AUTO_TITLE=1 claude --model {model} --permiss
 将 API 地址和 key 内联到 claude 启动命令前，只对该进程生效，不污染 pane 的 shell 环境：
 
 ```bash
-tmux-cli send "CLAUDE_CODE_DISABLE_AUTO_TITLE=1 ANTHROPIC_BASE_URL={api_base} ANTHROPIC_AUTH_TOKEN={api_key} claude --model {model} --permission-mode {permission_mode} --append-system-prompt-file ${CLAUDE_SKILL_DIR}/../../roles/{type}.md --disallowed-tools '{disallowed_tools}' --name '{pane_title}'" --pane={pane_id}
+tmux-cli send "CLAUDE_CODE_DISABLE_AUTO_TITLE=1 ANTHROPIC_BASE_URL={api_base} ANTHROPIC_AUTH_TOKEN={api_key} claude --model {model} --permission-mode {permission_mode} --append-system-prompt-file {plugin_root}/roles/{type}.md --disallowed-tools '{disallowed_tools}' --name '{pane_title}'" --pane={pane_id}
 ```
 
 启动后等待就绪：
@@ -222,7 +246,7 @@ tmux-cli wait_idle --pane={pane_id} --idle-time=5 --timeout=60
 注入 role prompt（合并 readiness 验证为一步）：
 
 ```bash
-tmux-cli send "你现在被纳入 tmux-agents 多 Agent 协作体系，担任 {type} 角色。请用 Read 工具读取 ${CLAUDE_SKILL_DIR}/../../roles/{type}.md 加载你的角色定义。读取并理解后请严格遵守 role 文件里的所有约束，并在单独一行输出 AGENT_READY 表示你已就绪。" --pane={pane_id}
+tmux-cli send "你现在被纳入 tmux-agents 多 Agent 协作体系，担任 {type} 角色。请用 Read 工具读取 {plugin_root}/roles/{type}.md 加载你的角色定义。读取并理解后请严格遵守 role 文件里的所有约束，并在单独一行输出 AGENT_READY 表示你已就绪。" --pane={pane_id}
 ```
 
 注意：此消息**不应**硬编码任何特定角色的行为约束（如"不修改源代码"），那些约束由各 role 文件自行声明。
@@ -251,6 +275,80 @@ codewhale 子 agent 第一次调用未分类工具（如 `task_shell_start`）�
 - 状态栏显示 `agent` 而非 `yolo`：用错了 `codewhale` 包装器而不是 `codewhale-tui`。`yolo` 状态栏标识同时要求 approval=auto AND trust mode=on 才显示；wrapper 的 `--yolo` 只完成 approval 一半，所以显示 `agent`。
 - `Path escapes workspace` 错误：启动前用 `which codewhale-tui` 确认指向 npm 真二进制（`/opt/homebrew/lib/node_modules/codewhale/bin/codewhale-tui.js` 或类似），而不是 PATH 上的 alias 或同名 wrapper 脚本。trust mode 启用后此错误不会再出现
 - `error: unexpected argument '--model'`：用 `codewhale-tui` 时必须用环境变量传 API/model，不能用 flag
+
+#### 3.3.C runtime = codex
+
+Codex runtime 调用当前机器已安装、已登录、已配置的 Codex CLI。不要在 `agents.json` 中为 Codex runtime 配置新的 provider endpoint 或 API key。
+
+**支持字段**：
+- `runtime`: 必须为 `codex`
+- `type`
+- `pane_title`
+- `model`（可选；只在当前 role 显式配置时传给 Codex；不填则不传 `--model`，使用当前 Codex 默认模型）
+- `profile`（可选；对应 `codex --profile`）
+- `sandbox`（可选；默认 `workspace-write`）
+- `approval_policy`（可选；默认 `never`）
+- `add_dirs`（可选；数组；默认包含 `/tmp/tmux-agents`）
+
+**不支持字段（fail fast）**：
+
+如果角色配置中出现 `api_base`、`api_key`、`permission_mode` 或 `disallowed_tools`，停止启动该 role，并提示用户删除这些字段。原因：
+- Codex runtime 只使用当前 Codex 配置，不接受 tmux-agents 传入新的 provider key
+- Codex CLI 没有与 Claude Code `--disallowed-tools` 等价的工具黑名单启动参数
+- `permission_mode` 是 Claude Code 字段，Codex 使用 `sandbox` 和 `approval_policy`
+
+**安全语义**：
+
+Codex 子 agent 会继承用户当前 Codex 配置、AGENTS 指令、skills/plugins/rules。role prompt 是本协作协议的一部分，但不是 Codex 子 agent 的唯一输入。`approval_policy` 默认 `never`，这样子 agent 不会在子 pane 内弹审批；越过 sandbox 的动作会直接失败。
+
+注意：Codex runtime 不继承 `defaults.model`。如果 role 自己没有配置 `model`，启动命令不要拼接 `--model`。
+
+**基础命令**：
+
+```bash
+tmux-cli send "codex --cd {master_cwd_quoted} --sandbox {sandbox} --ask-for-approval {approval_policy} --add-dir /tmp/tmux-agents --no-alt-screen" --pane={pane_id}
+```
+
+如果配置了 `model`：
+
+```bash
+tmux-cli send "codex --model {model} --cd {master_cwd_quoted} --sandbox {sandbox} --ask-for-approval {approval_policy} --add-dir /tmp/tmux-agents --no-alt-screen" --pane={pane_id}
+```
+
+如果只配置了 `profile`：
+
+```bash
+tmux-cli send "codex --profile {profile} --cd {master_cwd_quoted} --sandbox {sandbox} --ask-for-approval {approval_policy} --add-dir /tmp/tmux-agents --no-alt-screen" --pane={pane_id}
+```
+
+如果同时配置了 `profile` 和 `model`：
+
+```bash
+tmux-cli send "codex --profile {profile} --model {model} --cd {master_cwd_quoted} --sandbox {sandbox} --ask-for-approval {approval_policy} --add-dir /tmp/tmux-agents --no-alt-screen" --pane={pane_id}
+```
+
+如果配置了额外 `add_dirs`，对每个目录追加一个 `--add-dir {dir}`。不要追加插件根目录；本机验证过 Codex workspace 权限下可读插件 cache 路径，role 文件直接使用 `{plugin_root}/roles/{type}.md`。
+
+启动后等待 TUI 就绪：
+
+```bash
+tmux-cli wait_idle --pane={pane_id} --idle-time=5 --timeout=60
+```
+
+注入 role prompt（合并 readiness 验证为一步）：
+
+```bash
+tmux-cli send "你现在被纳入 tmux-agents 多 Agent 协作体系，担任 {type} 角色。请用 Read 工具读取 {plugin_root}/roles/{type}.md 加载你的角色定义。读取并理解后请严格遵守 role 文件里的所有约束，并在单独一行输出 AGENT_READY 表示你已就绪。" --pane={pane_id}
+```
+
+等待并验证：
+
+```bash
+tmux-cli wait_idle --pane={pane_id} --idle-time=5 --timeout=120
+tmux-cli capture --pane={pane_id}
+```
+
+检查 capture 输出中是否包含 `AGENT_READY`。如果不包含，报告该 agent 启动异常，继续启动下一个。
 
 ---
 
@@ -328,35 +426,38 @@ Tmux-Agents 环境就绪
 
 ### 安全约束
 
-以下约束**在 claude runtime 下由工具层硬保证**（`--disallowed-tools`）；**在 codewhale runtime 下仅为 role prompt 软约束**（详见后文"Runtime 差异与安全说明"）：
+以下约束**在 claude runtime 下由工具层硬保证**（`--disallowed-tools`）；**在 codewhale 和 codex runtime 下仅为 role prompt 软约束**（详见后文"Runtime 差异与安全说明"）：
 
 - 子 agent 禁止执行 git commit、git push、git reset、git clean、gh pr create
 - 只有总控（用户的主 session）有权执行 git 操作
 - reviewer 的 role prompt 约束不得修改项目源代码，只能写 `/tmp/tmux-agents/` 下的 temp 文件
-- **API key 暴露面（两个 runtime 完全一致）**：key 经 `tmux-cli send` 传递时会出现在：
+- **API key 暴露面（claude/codewhale）**：key 经 `tmux-cli send` 传递时会出现在：
   1. 主控 `tmux-cli send` 进程 cmdline（`ps aux` 可见）
   2. 子 pane 的 `~/.zsh_history`（除非用户配了 HISTCONTROL/HISTIGNORE 过滤）
   3. 启动那一帧的 `tmux-cli capture` 输出
   这是 `tmux-cli send` 设计的固有限制，不是 runtime 差异。原"环境变量前缀不进 cmdline"只对 LLM 子进程自身成立（变量在 `/proc/<pid>/environ` 而非 cmdline），对 `tmux-cli send` 这条路径无效
+- **Codex runtime 不接受 API key**：`runtime: codex` 使用当前 Codex 已配置的认证和 profile，不支持在 `agents.json` 中传入 `api_base` 或 `api_key`。
 
 ### Runtime 差异与安全说明
 
 不同 runtime 对"工具黑名单"机制的支持差异显著，本插件**有意保留这种不对称**，使用者需理解差异：
 
-| 维度 | claude runtime | codewhale runtime |
-|---|---|---|
-| 工具黑名单 | `--disallowed-tools` **启动参数硬约束**，工具层拦截，任何路径都挡得住 | 无原生机制，仅依靠 **role prompt 软约束** |
-| permission_mode 字段 | 直接使用，控制工具批准粒度 | 被忽略，统一 `--yolo` |
-| disallowed_tools 字段 | 实际生效 | 不应配置（无等价机制，配置反而误导） |
-| 工具直接读写 workspace 外路径 | claude 受 cwd 默认限制（但可被 shell 调用绕过）| codewhale-tui --yolo 下 trust mode 默认放行（无需绕 shell） |
+| 维度 | claude runtime | codewhale runtime | codex runtime |
+|---|---|---|---|
+| 工具黑名单 | `--disallowed-tools` **启动参数硬约束**，工具层拦截，任何路径都挡得住 | 无原生机制，仅依靠 **role prompt 软约束** | 无等价启动参数，仅依靠 **role prompt 软约束** |
+| 权限字段 | `permission_mode` 直接使用 | `permission_mode` 被忽略，统一 `--yolo` | 使用 `sandbox` 和 `approval_policy`，不支持 `permission_mode` |
+| disallowed_tools 字段 | 实际生效 | 不应配置（无等价机制，配置反而误导） | 不支持；出现时 fail fast |
+| API 字段 | 可用 `api_base`/`api_key` 配置 Anthropic 兼容接口 | 可用 `api_base`/`api_key` 配置 litellm 兼容代理 | 不支持；使用当前 Codex 配置 |
+| 工具直接读写 workspace 外路径 | claude 受 cwd 默认限制（但可被 shell 调用绕过） | codewhale-tui --yolo 下 trust mode 默认放行（无需绕 shell） | 受 Codex sandbox/profile/配置控制 |
 
-**为什么不对称**：claude 的硬约束零成本可用，启用它没有理由不用；codewhale 实现等价硬约束需要 wrapper script + PATH 劫持等额外机制，复杂度与它能挡的实际事件概率不匹配，因此本插件不实现，由 role prompt 和总控人工把关兜底。
+**为什么不对称**：claude 的硬约束零成本可用，启用它没有理由不用；codewhale/codex 没有等价的工具黑名单启动参数，因此本插件不伪造硬约束，由 role prompt、sandbox 和总控人工把关兜底。
 
 **为什么 codewhale 必须用 `codewhale-tui --yolo`**：codewhale 的 `read_file`/`write_file` 工具有"workspace 内才能读写"的应用层硬校验（独立于 OS 沙箱）。tmux-agents 通信协议需要子 agent 读 plugin 内置的 role 文件（cache 目录，workspace 外）、写 `/tmp/tmux-agents/` 通信目录。`codewhale --yolo`（npm 包装器）只放开审批不放开 workspace 校验，必须直接调 `codewhale-tui --yolo` 才会启用 trust mode 让任意路径都通——这是 codewhale 的设计取舍，不是本插件能收窄的。
 
 **使用建议**：
 - 默认 runtime 是 `claude`，有完整安全保护
 - 用 codewhale runtime 时，安全约束由 role prompt 提供，工具层无兜底
+- 用 codex runtime 时，安全约束由 role prompt 和 Codex sandbox/profile 提供，工具层无 `--disallowed-tools` 等价兜底
 - 所有 git 写操作仍只在总控层执行，子 agent 任何 runtime 都不应触碰
 
 ### 通用安全说明
@@ -379,7 +480,7 @@ Tmux-Agents 环境就绪
 ### 已知限制
 
 - 多个总控 session 并发使用同一套 agent 会产生竞争，当前设计为单用户场景
-- **schema 设计缺陷待修**：`api_base`/`api_key` 字段在 `runtime: claude` 和 `runtime: codewhale` 下语义不同——claude 指 LLM provider 原生 endpoint/key，codewhale 当前指 litellm 代理 endpoint/key。长期应 split 成 `claude_api_base`/`codewhale_api_base` 或引入 `provider_kind` 字段
+- **schema 设计缺陷待修**：`api_base`/`api_key` 字段在 `runtime: claude` 和 `runtime: codewhale` 下语义不同——claude 指 LLM provider 原生 endpoint/key，codewhale 当前指 litellm 代理 endpoint/key。`runtime: codex` 明确不支持这两个字段。长期应 split 成 `claude_api_base`/`codewhale_api_base` 或引入 `provider_kind` 字段
 - **example role 命名约定**：当前 `code-reviewer-codewhale` 这个角色名同时编码了 type 和 runtime，但 schema 字段已经有 type 和 runtime 单独表达，是否要约定/强制命名规范待讨论
 - **pane title 易被 OSC 序列覆盖**：tmux 默认允许子进程通过 OSC 转义改写 pane title。`claude` runtime 有 `CLAUDE_CODE_DISABLE_AUTO_TITLE=1` 防护，但 zsh/codewhale-tui 等其他 runtime 没有等价机制。步骤 3.2 通过 `tmux set-option -p {pane} allow-rename off` + `automatic-rename off` 在 pane 级别锁死 title。如果未来发现某个 runtime 仍能改 title，说明它绕过了 tmux 的 rename 拦截（理论上不该发生），需要回到该 runtime 自身的禁用机制
 

@@ -1,0 +1,6 @@
+{
+  "name": "tmux-agents",
+  "version": "0.3.0",
+  "description": "基于 tmux 的多 Agent 协作编排：通过 tmux pane 管理独立的子 Agent，消除同一 Agent 自写自审的确认偏差",
+  "skills": "./skills/"
+}

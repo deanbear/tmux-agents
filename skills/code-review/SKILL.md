@@ -16,7 +16,7 @@ user-invocable: true
 
 ## 步骤一：发现 agent
 
-按 setup-agents 中定义的配置查找顺序（`$TMUX_AGENTS_CONFIG` → `~/.claude/tmux-agents/agents.json` → 插件内 `config/agents.example.json`）读取配置文件，找到 `type` 为 `code-reviewer` 和 `code-writer` 的角色，记录其 `pane_title`。
+按 setup-agents 中定义的配置查找顺序读取配置文件（`$TMUX_AGENTS_CONFIG` → 当前宿主的默认配置目录 → 插件内 `config/agents.example.json`），找到 `type` 为 `code-reviewer` 和 `code-writer` 的角色，记录其 `pane_title`。
 
 运行 `tmux-cli status`，查找：
 - `type: code-reviewer` 对应的 pane（必须）
